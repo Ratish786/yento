@@ -1,0 +1,2042 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:get/get.dart';
+
+class Message {
+  final String senderId;
+  final String senderEmail;
+  final String receiverId;
+  final String message;
+  final Timestamp timestamp;
+
+  Message({
+    required this.senderId,
+    required this.senderEmail,
+    required this.receiverId,
+    required this.message,
+    required this.timestamp,
+  });
+
+  // 🔥 Convert Dart object → Firestore (Map)
+  Map<String, dynamic> toJson() {
+    return {
+      'senderId': senderId,
+      'senderEmail': senderEmail,
+      'receiverId': receiverId,
+      'message': message,
+      'timestamp': timestamp,
+    };
+  }
+
+  // 🔥 Convert Firestore (Map) → Dart object
+  factory Message.fromJson(Map<String, dynamic> map) {
+    return Message(
+      senderId: map['senderId'],
+      senderEmail: map['senderEmail'],
+      receiverId: map['receiverId'],
+      message: map['message'],
+      timestamp: map['timestamp'],
+    );
+  }
+}
+
+class ChatController extends GetxController {
+  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+
+
+
+
+
+
+  Future<void> sendMessage(String receiverId, String message) async {
+    final String currentUserId = _firebaseAuth.currentUser!.uid;
+    final String currentUserEmail = _firebaseAuth.currentUser!.email.toString();
+    final Timestamp timestamp = Timestamp.now();
+
+    Message newMessage = Message(
+      senderId: currentUserId,
+      senderEmail: currentUserEmail,
+      receiverId: receiverId,
+      message: message,
+      timestamp: timestamp,
+    );
+
+    List<String> ids = [currentUserId, receiverId];
+    ids.sort();
+    String chatRoomId = ids.join("_");
+
+    await _firestore
+        .collection('chat_rooms')
+        .doc(chatRoomId)
+        .collection('messages')
+        .add(newMessage.toJson());
+  }
+  Stream<QuerySnapshot> getMessages(String userId, String otherUserId) {
+    List<String> ids = [userId, otherUserId];
+    ids.sort();
+    String chatRoomId = ids.join("_");
+
+    return _firestore
+        .collection('chat_rooms')
+        .doc(chatRoomId)
+        .collection('messages')
+        .orderBy('timestamp', descending: false)
+        .snapshots();
+  }
+
+
+
+ 
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:yento_app/components/custom/customBottombar.dart';
+import 'package:yento_app/components/custom/app_shell.dart';
+import 'package:yento_app/components/custom/customNotificationsBox.dart';
+import 'package:yento_app/screens/MomentsScreen.dart';
+import 'package:yento_app/screens/calenderScreen.dart';
+import '../components/dialog/CreatePlan.dart';
+import '../controller/create_plan_controller.dart'; // ⭐ contains CreatePlanController + PlanModel
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+void showNotifications(BuildContext context) {
+  showDialog(context: context, builder: (_) => const CustomNotificationsBox());
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final CreatePlanController planC; // ⭐ controller instance
+  String user = 'User';
+
+  @override
+  void initState() {
+    super.initState();
+    planC = Get.put(
+      CreatePlanController(),
+    ); // ⭐ make sure NOT to put again elsewhere
+    planC.loadUsers(); // ⭐ load all users for avatars
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      appBar: _buildAppBar(context),
+      body: _buildBody(width),
+      bottomNavigationBar: const Custombottombar(currentIndex: 0),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // APP BAR
+  // ---------------------------------------------------------------------------
+  AppBar _buildAppBar(BuildContext context) {
+    return AppBar(
+      scrolledUnderElevation: 0,
+      backgroundColor: Colors.white,
+      title: const Text(
+        'Smart Hub',
+        style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+      ),
+      leading: Builder(
+        builder: (context) => IconButton(
+          onPressed: () {
+            AppShell.shellScaffoldKey.currentState!.openDrawer();
+          },
+          icon: const Icon(Icons.menu),
+        ),
+      ),
+      actions: [
+        IconButton(
+          onPressed: () => showNotifications(context),
+          icon: const Icon(Icons.notifications_none),
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // BODY
+  // ---------------------------------------------------------------------------
+  Widget _buildBody(double width) {
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildGreeting(),
+            const SizedBox(height: 10),
+            TilesGrid(),
+            _buildUpcomingPlansCard(width), // ⭐ UPDATED
+            const SizedBox(height: 20),
+            _buildRecentMomentsCard(width),
+            const SizedBox(height: 20),
+            _buildSocialNudgesSection(width), // ⭐ keep this as you wanted
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // GREETING
+  // ---------------------------------------------------------------------------
+  Widget _buildGreeting() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Good afternoon, $user!',
+          style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+        ),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // TILES GRID (fixed layout to avoid Row overflow)
+  // ---------------------------------------------------------------------------
+  Widget TilesGrid() {
+    return Container(
+      // color: Colors.blue,
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                SizedBox(width: 8),
+                // Use Expanded instead of width: double.infinity inside Row
+                Container(
+                  height: 40,
+                  width: 160,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.calendar_today_outlined,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  height: 40,
+                  width: 160,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF4F46E5), Color(0xFF3B82F6)],
+                      begin: Alignment.bottomRight,
+                      end: Alignment.topLeft,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.flash_auto_outlined, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text('Explore', style: TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Container(
+                  height: 40,
+                  width: 160,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.calendar_today_outlined, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text('New Plan', style: TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+                Container(
+                  height: 40,
+                  width: 160,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.calendar_today_outlined, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text('New Plan', style: TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // ⭐ UPCOMING PLANS CARD (scrollable + bottom create text)
+  // ---------------------------------------------------------------------------
+  Widget _buildUpcomingPlansCard(double width) {
+    return SizedBox(
+      height: 360,
+      width: width,
+      child: Card(
+        elevation: 0,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              _cardHeader(
+                icon: Icons.calendar_today_outlined,
+                iconColor: Colors.blue,
+                title: 'Up ',
+                actionText: 'View Calendar',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => CalenderScreen()),
+                  );
+                },
+              ),
+
+              const SizedBox(height: 10),
+
+              // ⭐ Live list of plans
+              Expanded(
+                child: StreamBuilder<List<PlanModel>>(
+                  stream: planC.getUserPlans(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final plans = snapshot.data!;
+
+                    if (plans.isEmpty) {
+                      // ⭐ When no plans → show cleared text + create plan
+                      return Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text(
+                            'Your calendar is cleared!',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 4),
+                          GestureDetector(
+                            onTap: () => CreateNewPlan(context),
+                            child: const Text(
+                              'Plan something new',
+                              style: TextStyle(
+                                color: Colors.blue,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+
+                    // ⭐ When plans exist → scrollable list + bottom "create new"
+                    return Column(
+                      children: [
+                        Expanded(
+                          child: ListView.builder(
+                            padding: EdgeInsets.zero,
+                            itemCount: plans.length,
+                            itemBuilder: (context, index) {
+                              return _planCard(context, plans[index]);
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          onTap: () => CreateNewPlan(context),
+                          child: const Text(
+                            'Plan something new',
+                            style: TextStyle(
+                              color: Colors.blue,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // ⭐ PLAN CARD – similar to your screenshot + delete + real avatars
+  // ---------------------------------------------------------------------------
+  Widget _planCard(BuildContext context, PlanModel plan) {
+    final date = plan.startDateTime;
+    final timeText =
+        "${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}";
+
+    // Recurring label like: Every 2 Weeks
+    String recurringText = "";
+    if (plan.isRecurring && plan.repeatType != "none") {
+      final unit = plan.repeatType; // daily / weekly / monthly
+      String unitLabel;
+      if (unit == "daily") {
+        unitLabel = "Day";
+      } else if (unit == "weekly") {
+        unitLabel = "Week";
+      } else {
+        unitLabel = "Month";
+      }
+      recurringText =
+          "Every ${plan.repeatInterval} ${unitLabel}${plan.repeatInterval > 1 ? 's' : ''}";
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ---------- Title + menu ----------
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  plan.title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) async {
+                  if (value == 'delete') {
+                    await planC.deletePlan(plan);
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'delete', child: Text('Delete plan')),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 6),
+
+          // ---------- Recurring chip ----------
+          if (recurringText.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xffeef2ff),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.repeat, size: 16, color: Color(0xff4f46e5)),
+                  const SizedBox(width: 4),
+                  Text(
+                    recurringText,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xff4f46e5),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          const SizedBox(height: 12),
+
+          // ---------- Date + Time ----------
+          Row(
+            children: [
+              // Date badge like OCT 24
+              Container(
+                width: 52,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: const Color(0xfffee2e2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _monthShort(date.month),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xffb91c1c),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      date.day.toString(),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xff111827),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xffeff6ff),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.access_time,
+                        size: 20,
+                        color: Color(0xff1d4ed8),
+                      ),
+                      const SizedBox(width: 8),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Start Time",
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xff6b7280),
+                            ),
+                          ),
+                          Text(
+                            timeText,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xff111827),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // ---------- Repeat Days (for weekly recurring) ----------
+          if (plan.isRecurring &&
+              plan.repeatType == "weekly" &&
+              plan.repeatDays.isNotEmpty) ...[
+            const SizedBox(height: 8),
+
+            Row(
+              children: const [
+                Icon(Icons.event_repeat, size: 18, color: Color(0xff0ea5e9)),
+                SizedBox(width: 6),
+                Text(
+                  'REPEATS ON',
+                  style: TextStyle(
+                    fontSize: 12,
+                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xff6b7280),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 6),
+
+            Wrap(
+              spacing: 6,
+              children: List.generate(7, (index) {
+                const labels = ["M", "T", "W", "T", "F", "S", "S"];
+
+                final isSelected = plan.repeatDays.contains(index);
+
+                if (!isSelected) return const SizedBox.shrink();
+
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xffe0f2fe),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    labels[index],
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xff0369a1),
+                    ),
+                  ),
+                );
+              }),
+            ),
+
+            const SizedBox(height: 8),
+          ],
+
+          const SizedBox(height: 14),
+
+          // ---------- Location ----------
+          if (plan.location != null) ...[
+            Row(
+              children: const [
+                Icon(Icons.location_on, size: 18, color: Color(0xfff97316)),
+                SizedBox(width: 6),
+                Text(
+                  'LOCATION',
+                  style: TextStyle(
+                    fontSize: 12,
+                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xff6b7280),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(plan.location!, style: const TextStyle(fontSize: 14)),
+            const SizedBox(height: 12),
+          ],
+
+          // ---------- Friends involved ----------
+          if (plan.invitedUserIds.isNotEmpty) ...[
+            Row(
+              children: const [
+                Icon(Icons.group, size: 18, color: Color(0xff22c55e)),
+                SizedBox(width: 6),
+                Text(
+                  'FRIENDS INVOLVED',
+                  style: TextStyle(
+                    fontSize: 12,
+                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xff6b7280),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+
+            // ⭐ Real avatars using planC.allUsers
+            Obx(() {
+              final invitedUsers = planC.allUsers
+                  .where((u) => plan.invitedUserIds.contains(u["id"]))
+                  .toList();
+
+              if (invitedUsers.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              return Row(
+                children: [
+                  for (int i = 0; i < invitedUsers.length && i < 3; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: CircleAvatar(
+                        radius: 16,
+                        backgroundImage:
+                            (invitedUsers[i]["ImageUrl"] != null &&
+                                invitedUsers[i]["ImageUrl"]
+                                    .toString()
+                                    .isNotEmpty)
+                            ? NetworkImage(invitedUsers[i]["ImageUrl"])
+                            : null,
+                        child:
+                            (invitedUsers[i]["ImageUrl"] == null ||
+                                invitedUsers[i]["ImageUrl"].toString().isEmpty)
+                            ? const Icon(Icons.person, size: 18)
+                            : null,
+                      ),
+                    ),
+
+                  if (invitedUsers.length > 3)
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Colors.black87,
+                      child: Text(
+                        "+${invitedUsers.length - 3}",
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            }),
+
+            const SizedBox(height: 12),
+          ],
+
+          // ---------- Notes ----------
+          if (plan.notes != null && plan.notes!.isNotEmpty) ...[
+            Row(
+              children: const [
+                Icon(
+                  Icons.sticky_note_2_outlined,
+                  size: 18,
+                  color: Color(0xff6366f1),
+                ),
+                SizedBox(width: 6),
+                Text(
+                  'NOTES',
+                  style: TextStyle(
+                    fontSize: 12,
+                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xff6b7280),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xffeef2ff),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                plan.notes!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // helper: month short name
+  String _monthShort(int month) {
+    const months = [
+      "JAN",
+      "FEB",
+      "MAR",
+      "APR",
+      "MAY",
+      "JUN",
+      "JUL",
+      "AUG",
+      "SEP",
+      "OCT",
+      "NOV",
+      "DEC",
+    ];
+    return months[month - 1];
+  }
+
+  // ---------------------------------------------------------------------------
+  // RECENT MOMENTS CARD (same as your original)
+  // ---------------------------------------------------------------------------
+  Widget _buildRecentMomentsCard(double width) {
+    return SizedBox(
+      height: 150,
+      width: width,
+      child: Card(
+        elevation: 0,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+          child: Column(
+            children: [
+              _cardHeader(
+                icon: Icons.image_outlined,
+                iconColor: Colors.red,
+                title: 'Recent Moments',
+                actionText: 'View All',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => Momentsscreen()),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'No recent moments to show.',
+                style: TextStyle(fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // SOCIAL NUDGES SECTION (your original content kept)
+  // ---------------------------------------------------------------------------
+  Widget _buildSocialNudgesSection(double width) {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: const [
+                Icon(Icons.front_hand, color: Colors.green),
+                SizedBox(width: 8),
+                Text(
+                  'Social Nudges',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            _buildReconnectCard(), // ⭐ from your original
+            const SizedBox(height: 16),
+
+            _buildBirthdayCard(), // ⭐ from your original
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // RECONNECT CARD (original)
+  // ---------------------------------------------------------------------------
+  Widget _buildReconnectCard() {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      color: Colors.green[200],
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Icon(Icons.add, size: 30, color: Color(0xffbbf7d0)),
+            const SizedBox(width: 12),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Reconnect!',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+
+                  const SizedBox(height: 4),
+                  const Text(
+                    "You haven't planned anything with your work buddies lately.",
+                  ),
+                  const SizedBox(height: 8),
+
+                  ElevatedButton(
+                    onPressed: () => CreateNewPlan(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xffbbf7d0),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Plan Now',
+                      style: TextStyle(
+                        color: Color(0xff166534),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // BIRTHDAY CARD (original)
+  // ---------------------------------------------------------------------------
+  Widget _buildBirthdayCard() {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      color: Colors.blue[200],
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            const Icon(Icons.calendar_today_outlined, size: 30),
+            const SizedBox(width: 12),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Birthday Coming Up',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+
+                  const SizedBox(height: 4),
+                  const Text("It's Diana Prince's birthday soon."),
+                  const Text("Time to make some plans."),
+                  const SizedBox(height: 8),
+
+                  ElevatedButton(
+                    onPressed: () => CreateNewPlan(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xffbfdbfe),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Create Plan',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xff1e40af),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // GENERIC CARD HEADER
+  // ---------------------------------------------------------------------------
+  Widget _cardHeader({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String actionText,
+    required VoidCallback onTap,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: iconColor),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        GestureDetector(
+          onTap: onTap,
+          child: Row(
+            children: [
+              Text(
+                actionText,
+                style: const TextStyle(
+                  color: Colors.blue,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.arrow_forward, color: Colors.blue),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+
+
+
+
+
+
+
+
+
+class CreatePlanDialog extends StatefulWidget {
+  const CreatePlanDialog({super.key});
+
+  @override
+  State<CreatePlanDialog> createState() => _CreatePlanDialogState();
+}
+
+class _CreatePlanDialogState extends State<CreatePlanDialog>
+    with SingleTickerProviderStateMixin {
+  final planC = Get.find<CreatePlanController>();
+  late TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> pickStart() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: planC.selectedDate.value,
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2100),
+    );
+    if (date != null) planC.selectedDate.value = date;
+  }
+
+  Future<void> pickStartTime() async {
+    TimeOfDay? time = await showTimePicker(
+      context: context,
+      initialTime: planC.selectedTime.value,
+    );
+    if (time != null) planC.selectedTime.value = time;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.of(context).size.height;
+
+    return Dialog(
+      backgroundColor: Colors.white,
+      insetPadding: const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // ================= HEADER =================
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Create a New Plan",
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          ),
+
+          // ================= TABS =================
+          TabBar(
+            controller: _tabController,
+            labelColor: Colors.blue,
+            unselectedLabelColor: Colors.grey,
+            indicatorColor: Colors.blue,
+            tabs: [
+              const Tab(text: "Details"),
+              Obx(() => Tab(text: "People (${planC.invitedUserIds.length})")),
+            ],
+          ),
+
+          // ================= TAB BODY =================
+          SizedBox(
+            height: height * 0.65,
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // ==================================================
+                // DETAILS TAB (YOUR FULL FORM, UI POLISHED)
+                // ==================================================
+                SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ---------- PLAN TITLE ----------
+                      const Text(
+                        "Plan Title",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: planC.titleController,
+                              decoration: InputDecoration(
+                                hintText: "What's the plan?",
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(
+                                    color: Colors.grey.shade300,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            icon: const Icon(Icons.lightbulb_outline),
+                            onPressed: () {}, // UI only
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // ---------- DATE & TIME ----------
+                      const Text(
+                        "Date & Time",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: pickStart,
+                              child: _inputBox(
+                                icon: Icons.calendar_today,
+                                child: Obx(() {
+                                  final d = planC.selectedDate.value;
+                                  return Text("${d.day}/${d.month}/${d.year}");
+                                }),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: pickStartTime,
+                              child: _inputBox(
+                                icon: Icons.access_time,
+                                child: Obx(() {
+                                  final t = planC.selectedTime.value;
+                                  return Text(
+                                    "${t.hour}:${t.minute.toString().padLeft(2, '0')}",
+                                  );
+                                }),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            icon: const Icon(Icons.auto_awesome),
+                            onPressed: () {}, // UI only
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // ---------- RECURRING (UNCHANGED) ----------
+                       Row(
+                children: [
+                  Obx(
+                    () => Checkbox(
+                      value: planC.isRecurring.value,
+                      onChanged: (v) => planC.isRecurring.value = v!,
+                    ),
+                  ),
+                  const Text(
+                    "Make this a recurring plan",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+
+              Obx(
+                () => planC.isRecurring.value
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Repeat Type
+                          DropdownButton<String>(
+                            value: planC.repeatType.value,
+                            items: ["daily", "weekly", "monthly"]
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e,
+                                    child: Text(e),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => planC.repeatType.value = v!,
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // Every X
+                          Row(
+                            children: [
+                              const Text("Every"),
+                              SizedBox(
+                                width: 70,
+                                child: TextField(
+                                  keyboardType: TextInputType.number,
+                                  onChanged: (v) => planC.repeatInterval.value =
+                                      int.tryParse(v) ?? 1,
+                                  decoration: const InputDecoration(
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // Weekly days
+                          if (planC.repeatType.value == "weekly")
+                            Obx(
+                              () => Wrap(
+                                spacing: 8,
+                                children: List.generate(7, (i) {
+                                  final day = [
+                                    "M",
+                                    "T",
+                                    "W",
+                                    "T",
+                                    "F",
+                                    "S",
+                                    "S",
+                                  ][i];
+                                  final selected = planC.repeatDays.contains(i);
+
+                                  return GestureDetector(
+                                    onTap: () {
+                                      if (selected)
+                                        planC.repeatDays.remove(i);
+                                      else
+                                        planC.repeatDays.add(i);
+                                    },
+                                    child: CircleAvatar(
+                                      radius: 18,
+                                      backgroundColor: selected
+                                          ? Colors.blue
+                                          : Colors.grey[300],
+                                      child: Text(
+                                        day,
+                                        style: TextStyle(
+                                          color: selected
+                                              ? Colors.white
+                                              : Colors.black,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ),
+                        ],
+                      )
+                    : SizedBox(),
+              ),
+
+                      const SizedBox(height: 20),
+
+                      const Text(
+                        "Location (Optional)",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: planC.locationController,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      const Text(
+                        "Notes (Optional)",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: planC.notesController,
+                        maxLines: 3,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // ==================================================
+                // PEOPLE TAB (ONLY FRIENDS LIST)
+                // ==================================================
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Obx(() {
+                    if (planC.isLoading.value) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    return ListView(
+                      children: planC.allUsers.map((user) {
+                        final id = user["id"];
+                        final name = user["Name"] ?? "Unknown";
+                        final image = user["ImageUrl"];
+
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundImage: image != null
+                                ? NetworkImage(image)
+                                : null,
+                          ),
+                          title: Text(name),
+                          trailing: Checkbox(
+                            value: planC.invitedUserIds.contains(id),
+                            onChanged: (v) {
+                              v == true
+                                  ? planC.invitedUserIds.add(id)
+                                  : planC.invitedUserIds.remove(id);
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  }),
+                ),
+              ],
+            ),
+          ),
+
+          const Divider(),
+
+          // ================= BUTTONS =================
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("Cancel"),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    await planC.createPlan();
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Add Plan"),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---------- SMALL UI HELPER ----------
+  Widget _inputBox({required IconData icon, required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.grey),
+          const SizedBox(width: 8),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+
+
+
+
+
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:yento_app/components/custom/app_shell.dart';
+import 'package:yento_app/components/custom/customNotificationsBox.dart';
+import 'package:yento_app/components/custom/customBottombar.dart';
+import '../controller/create_plan_controller.dart';
+
+class EventDetailsScreen extends StatefulWidget {
+  final String ownerId;
+  final String planId;
+
+  const EventDetailsScreen({
+    super.key,
+    required this.ownerId,
+    required this.planId,
+  });
+
+  @override
+  State<EventDetailsScreen> createState() => _EventDetailsScreenState();
+}
+
+class _EventDetailsScreenState extends State<EventDetailsScreen> {
+  PlanModel? plan;
+  bool showFlightForm = false;
+
+  final checklistCtrl = TextEditingController();
+  List<String> checklist = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPlan();
+  }
+
+  Future<void> _loadPlan() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.ownerId)
+        .collection('plans')
+        .doc(widget.planId)
+        .get();
+
+    if (doc.exists) {
+      setState(() {
+        plan = PlanModel.fromDoc(doc);
+      });
+    }
+  }
+
+  // ---------------- FORMAT HELPERS ----------------
+  String formatDate(DateTime d) => "${d.day}/${d.month}/${d.year}";
+
+  String formatTime(DateTime d) {
+    final hour = d.hour > 12 ? d.hour - 12 : d.hour;
+    final period = d.hour >= 12 ? "PM" : "AM";
+    return "$hour:${d.minute.toString().padLeft(2, '0')} $period";
+  }
+
+  // ---------------- UI ----------------
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xffF5F6FA),
+      appBar: AppBar(
+        title: const Text("Plan Details"),
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () {
+            AppShell.shellScaffoldKey.currentState!.openDrawer();
+          },
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications_none),
+            onPressed: () => showDialog(
+              context: context,
+              builder: (_) => const CustomNotificationsBox(),
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: const Custombottombar(currentIndex: 0),
+      body: plan == null
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  weatherCard(),
+                  infoTile(
+                    Icons.calendar_today,
+                    "DATE",
+                    formatDate(plan!.startDateTime),
+                  ),
+                  infoTile(
+                    Icons.access_time,
+                    "TIME",
+                    formatTime(plan!.startDateTime),
+                  ),
+                  if (plan!.isRecurring)
+                    infoTile(
+                      Icons.repeat,
+                      "REPEATS",
+                      "Every ${plan!.repeatInterval} ${plan!.repeatType}",
+                    ),
+                  if (plan!.location != null && plan!.location!.isNotEmpty)
+                    infoTile(Icons.location_on, "LOCATION", plan!.location!),
+
+                  const SizedBox(height: 16),
+                  attendeesCard(),
+                  const SizedBox(height: 16),
+                  notesCard(),
+                  const SizedBox(height: 16),
+                  flightDetailsCard(),
+                  const SizedBox(height: 16),
+                  checklistCard(),
+                  const SizedBox(height: 16),
+                  exportCalendarCard(),
+                  const SizedBox(height: 16),
+                  sharedAlbumCard(),
+                ],
+              ),
+            ),
+    );
+  }
+
+  // ---------------- WEATHER ----------------
+  Widget weatherCard() {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.wb_sunny),
+        title: const Text("Sunny"),
+        subtitle: Text(plan!.location ?? ""),
+      ),
+    );
+  }
+
+  // ---------------- INFO TILE ----------------
+  Widget infoTile(IconData icon, String title, String value) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.blue),
+      title: Text(title, style: const TextStyle(fontSize: 12)),
+      subtitle: Text(value),
+    );
+  }
+
+  // ---------------- ATTENDEES ----------------
+  Widget attendeesCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Attendees (${plan!.invitedUsers.length})",
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            for (final u in plan!.invitedUsers)
+              attendeeItem(name: u.userId.substring(0, 6), status: u.status),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget attendeeItem({required String name, required String status}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          const CircleAvatar(radius: 16),
+          const SizedBox(width: 10),
+          Expanded(child: Text(name)),
+          Text(status.toUpperCase(), style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  // ---------------- NOTES ----------------
+  Widget notesCard() {
+    if (plan!.notes == null || plan!.notes!.isEmpty) return const SizedBox();
+    return Card(
+      color: const Color(0xffFFF7D6),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Text(plan!.notes!),
+      ),
+    );
+  }
+
+  // ---------------- FLIGHT ----------------
+  Widget flightDetailsCard() {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.flight),
+        title: const Text("Flight Details"),
+        trailing: TextButton(
+          child: const Text("ADD"),
+          onPressed: () {
+            setState(() => showFlightForm = !showFlightForm);
+          },
+        ),
+      ),
+    );
+  }
+
+  // ---------------- CHECKLIST ----------------
+  Widget checklistCard() {
+    return Card(
+      color: const Color(0xffEFFFF6),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          children: [
+            const Text(
+              "Travel Checklist",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            for (final item in checklist)
+              Row(
+                children: [
+                  const Icon(Icons.check, color: Colors.green),
+                  const SizedBox(width: 6),
+                  Text(item),
+                ],
+              ),
+            TextField(
+              controller: checklistCtrl,
+              decoration: const InputDecoration(hintText: "Add item"),
+              onSubmitted: (v) {
+                if (v.isEmpty) return;
+                setState(() {
+                  checklist.add(v);
+                  checklistCtrl.clear();
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---------------- EXPORT ----------------
+  Widget exportCalendarCard() {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.share),
+        title: const Text("Export to Calendar"),
+      ),
+    );
+  }
+
+  // ---------------- SHARED ALBUM ----------------
+  Widget sharedAlbumCard() {
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.photo),
+        title: const Text("Shared Album"),
+        subtitle: const Text("No photos yet"),
+      ),
+    );
+  }
+}
+
+
+
+
+
+
+
+find friend email invitation 
+
+import 'package:flutter/material.dart';
+import 'package:yento_app/components/custom/customBottombar.dart';
+import 'package:yento_app/components/custom/customNotificationsBox.dart';
+import 'package:yento_app/controller/send_mail.dart';
+import '../components/custom/app_shell.dart';
+
+class Findfriendsscreen extends StatefulWidget {
+  const Findfriendsscreen({super.key});
+
+  @override
+  State<Findfriendsscreen> createState() => _FindfriendsscreenState();
+}
+
+class _FindfriendsscreenState extends State<Findfriendsscreen> {
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+
+    return Scaffold(
+      backgroundColor: Colors.grey[200],
+
+      // ---------------- APP BAR ----------------
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        scrolledUnderElevation: 0,
+        title: const Text(
+          "Find Friends",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () {
+              AppShell.shellScaffoldKey.currentState!.openDrawer();
+            },
+          ),
+        ),
+
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications_none),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (_) => const CustomNotificationsBox(),
+              );
+            },
+          ),
+        ],
+      ),
+
+      // ---------------- BODY ----------------
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          children: [
+            const SizedBox(height: 20),
+
+            Container(
+              width: width * 0.9,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Find Friends",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {},
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[200],
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      "Re-sync",
+                      style: TextStyle(color: Colors.black),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            contactsSection(context),
+          ],
+        ),
+      ),
+
+      bottomNavigationBar: const Custombottombar(),
+    );
+  }
+}
+
+//
+// ---------------- CONTACTS SECTION ----------------
+//
+Widget contactsSection(BuildContext context) {
+  final width = MediaQuery.of(context).size.width;
+
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Padding(
+        padding: EdgeInsets.only(left: 12),
+        child: Text(
+          "Contacts on YenTo (3)",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+      ),
+
+      const SizedBox(height: 20),
+
+      _connectTile(context, "Abc", Colors.black),
+      const SizedBox(height: 20),
+      _connectTile(context, "Pqr", Colors.purple),
+      const SizedBox(height: 20),
+      _connectTile(context, "Xyz", Colors.blue),
+
+      const SizedBox(height: 20),
+
+      const Padding(
+        padding: EdgeInsets.only(left: 12),
+        child: Text(
+          "Invite to Yento (3)",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+        ),
+      ),
+
+      const SizedBox(height: 20),
+
+      Center(
+        child: Container(
+          width: width * 0.9,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(15),
+          ),
+
+          child: Column(
+            children: [
+              inviteTile(context, "Abc"),
+              const SizedBox(height: 12),
+              inviteTile(context, "Pqr"),
+              const SizedBox(height: 12),
+              inviteTile(context, "Xyz"),
+            ],
+          ),
+        ),
+      ),
+
+      const SizedBox(height: 20),
+    ],
+  );
+}
+
+//
+// ------------- TILE FOR CONTACTS USING APP -------------
+//
+Widget _connectTile(BuildContext context, String name, Color avatarColor) {
+  final width = MediaQuery.of(context).size.width;
+
+  return Container(
+    width: width * 0.9,
+    height: 180,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        CircleAvatar(radius: 34, backgroundColor: avatarColor),
+        const SizedBox(height: 8),
+        Text(
+          name,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.black,
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        ElevatedButton(
+          onPressed: () {},
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.grey[200],
+            elevation: 0,
+          ),
+          child: const Text("Connect", style: TextStyle(color: Colors.black)),
+        ),
+      ],
+    ),
+  );
+}
+
+//
+// ------------------ INVITE TILE ------------------------
+//
+Widget inviteTile(BuildContext context, String name) {
+  return Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            name,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const Text("Not on YenTo yet", style: TextStyle(color: Colors.grey)),
+        ],
+      ),
+
+      ElevatedButton(
+        onPressed: () {
+          openInviteDialog(context); // <-- FIXED
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xffbfdbfe),
+          elevation: 0,
+        ),
+        child: const Text("Invite", style: TextStyle(color: Color(0xff1e40af))),
+      ),
+    ],
+  );
+}
+
+//
+// ------------------ INVITE DIALOG ----------------------
+//
+void openInviteDialog(BuildContext context) {
+  final emailC = TextEditingController(); // Friend email
+  final msgC = TextEditingController(); // Message text
+
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text("Invite Friend"),
+
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: emailC,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: "Friend's Email",
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          TextField(
+            controller: msgC,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: "Message",
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
+        ),
+
+        TextButton(
+          onPressed: () async {
+            final receiver = emailC.text.trim();
+            final message = msgC.text.trim();
+
+            await sendInviteEmail(receiver, message);
+
+            if (context.mounted) {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("Invite sent to $receiver")),
+              );
+            }
+          },
+          child: const Text("Send"),
+        ),
+      ],
+    ),
+  );
+}
