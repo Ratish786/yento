@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:yento_app/components/custom/app_shell.dart';
 import 'package:yento_app/screens/login_screen.dart';
+import 'package:yento_app/screens/password_screen.dart';
+import 'package:yento_app/controller/pass_controller.dart';
 
 class AuthController extends GetxController {
   static AuthController instance = Get.find();
@@ -32,7 +34,20 @@ class AuthController extends GetxController {
     if (currentUser == null) {
       Get.offAll(() => const SimpleLoginScreen());
     } else {
-      Get.offAll(() => AppShell());
+      // Check if PIN is set before navigating to main app
+      try {
+        final passC = Get.put(PassController());
+        final hasPinSet = await passC.hasPinSet();
+        
+        if (hasPinSet) {
+          Get.offAll(() => const LockScreen());
+        } else {
+          Get.offAll(() => AppShell());
+        }
+      } catch (e) {
+        // If PIN check fails, go to main app
+        Get.offAll(() => AppShell());
+      }
     }
   }
 
@@ -101,4 +116,7 @@ class AuthController extends GetxController {
 
   // --- HELPER: Get current user ID safely ---
   String? get userId => user.value?.uid;
+  
+  // --- HELPER: Check if user is logged in ---
+  bool get isLoggedIn => user.value != null;
 }

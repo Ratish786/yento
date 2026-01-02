@@ -689,6 +689,11 @@ class _CreatePlanDialogState extends State<CreatePlanDialog>
                   Expanded(
                     child: GestureDetector(
                       onTap: () async {
+                        print('Create plan button pressed');
+                        print('Title: ${planC.titleController.text}');
+                        print('Selected circles: ${circleC.selectedCircleIds.length}');
+                        print('Selected users: ${planC.selectedUserIds.length}');
+                        
                         if (planC.validatePlan()) {
                           await planC.createPlan();
                           Navigator.pop(context);

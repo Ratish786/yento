@@ -12,6 +12,7 @@ import 'package:yento_app/screens/broadcastScreen.dart';
 import 'package:yento_app/screens/calenderScreen.dart';
 import 'package:yento_app/screens/circleScreen.dart';
 import 'package:yento_app/screens/groupPlansScreen.dart';
+import 'package:yento_app/screens/plan_Screen.dart';
 import '../components/dialog/CreatePlan.dart';
 import '../components/models/groupPlanModel.dart';
 import '../controller/auth_controller.dart';
@@ -36,7 +37,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String user = 'User';
   bool isUpNextExpanded = true;
-  List<Map<String, String>> dummyPlans = [];
 
   @override
   void initState() {
@@ -592,52 +592,129 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             if (isUpNextExpanded) ...[
               const SizedBox(height: 16),
-              if (dummyPlans.isEmpty)
-                Column(
-                  children: [
-                    const SizedBox(height: 8),
-                    Text(
-                      "No plans coming up.",
-                      style: TextStyle(
-                        color: themeC.isDarkMode.value
-                            ? const Color(0xFF94A3B8)
-                            : const Color(0xFF9CA3AF),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
+              StreamBuilder(
+                stream: planC.getCalendarPlans(),
+                builder: (context, snapshot) {
+                  print('Plans stream state: ${snapshot.connectionState}');
+                  print('Plans data: ${snapshot.data?.length ?? 0} plans');
+                  
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: CircularProgressIndicator(),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    GestureDetector(
-                      onTap: () {
-                        showDialog(
-                          context: context,
-                          builder: (context) => const CreatePlanDialog(),
-                        );
-                      },
-                      child: const Text(
-                        "Plan something!",
+                    );
+                  }
+
+                  if (snapshot.hasError) {
+                    print('Plans stream error: ${snapshot.error}');
+                    return Center(
+                      child: Text(
+                        'Error loading plans: ${snapshot.error}',
                         style: TextStyle(
-                          color: Color(0xFF3B82F6),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
+                          color: Colors.red,
+                          fontSize: 14,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              if (dummyPlans.isNotEmpty)
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: dummyPlans.length,
-                  itemBuilder: (context, index) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _dummyPlanCard(dummyPlans[index]),
                     );
-                  },
-                ),
+                  }
+
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return Column(
+                      children: [
+                        const SizedBox(height: 8),
+                        Text(
+                          "No plans coming up.",
+                          style: TextStyle(
+                            color: themeC.isDarkMode.value
+                                ? const Color(0xFF94A3B8)
+                                : const Color(0xFF9CA3AF),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        GestureDetector(
+                          onTap: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => const CreatePlanDialog(),
+                            );
+                          },
+                          child: const Text(
+                            "Plan something!",
+                            style: TextStyle(
+                              color: Color(0xFF3B82F6),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    );
+                  }
+
+                  final plans = snapshot.data!;
+                  final upcomingPlans = plans.where((plan) {
+                    return plan.startDateTime.isAfter(DateTime.now());
+                  }).toList()..sort((a, b) => a.startDateTime.compareTo(b.startDateTime));
+
+                  if (upcomingPlans.isEmpty) {
+                    return Column(
+                      children: [
+                        const SizedBox(height: 8),
+                        Text(
+                          "No upcoming plans.",
+                          style: TextStyle(
+                            color: themeC.isDarkMode.value
+                                ? const Color(0xFF94A3B8)
+                                : const Color(0xFF9CA3AF),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        GestureDetector(
+                          onTap: () {
+                            showDialog(
+                              context: context,
+                              builder: (context) => const CreatePlanDialog(),
+                            );
+                          },
+                          child: const Text(
+                            "Plan something!",
+                            style: TextStyle(
+                              color: Color(0xFF3B82F6),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    );
+                  }
+
+                  return SizedBox(
+                    height: upcomingPlans.length > 3 ? 240 : null,
+                    child: ListView.builder(
+                      shrinkWrap: upcomingPlans.length <= 3,
+                      physics: upcomingPlans.length > 3 
+                          ? const AlwaysScrollableScrollPhysics()
+                          : const NeverScrollableScrollPhysics(),
+                      itemCount: upcomingPlans.length,
+                      itemBuilder: (context, index) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _planCard(upcomingPlans[index]),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
             ],
           ],
         ),
@@ -645,81 +722,102 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _dummyPlanCard(Map<String, String> plan) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: themeC.isDarkMode.value
-            ? const Color(0xFF0F172A)
-            : const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
+  Widget _planCard(plan) {
+    final startDate = plan.startDateTime;
+    final timeStr = "${startDate.hour.toString().padLeft(2, '0')}:${startDate.minute.toString().padLeft(2, '0')}";
+    final location = plan.location?.isNotEmpty == true ? plan.location : "No location";
+    
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => EventDetailsScreen(
+              ownerId: plan.ownerId,
+              planId: plan.id,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
           color: themeC.isDarkMode.value
-              ? const Color(0xFF334155)
-              : const Color(0xFFE5E7EB),
+              ? const Color(0xFF0F172A)
+              : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: themeC.isDarkMode.value
+                ? const Color(0xFF334155)
+                : const Color(0xFFE5E7EB),
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 56,
-            decoration: BoxDecoration(
-              color: const Color(0xFFDBEAFE),
-              borderRadius: BorderRadius.circular(12),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 56,
+              decoration: BoxDecoration(
+                color: const Color(0xFFDBEAFE),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    _monthShort(startDate.month),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF3B82F6),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    startDate.day.toString(),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  plan["month"]!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF3B82F6),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    plan.title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: themeC.isDarkMode.value
+                          ? Colors.white
+                          : const Color(0xFF1F2937),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  plan["day"]!,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E293B),
+                  const SizedBox(height: 4),
+                  Text(
+                    "$timeStr · $location",
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: themeC.isDarkMode.value
+                          ? const Color(0xFF94A3B8)
+                          : const Color(0xFF9CA3AF),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  plan["title"]!,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: themeC.isDarkMode.value
-                        ? Colors.white
-                        : const Color(0xFF1F2937),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  "${plan["time"]} · ${plan["tag"]}",
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: themeC.isDarkMode.value
-                        ? const Color(0xFF94A3B8)
-                        : const Color(0xFF9CA3AF),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

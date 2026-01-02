@@ -2,7 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'login_screen.dart';
+import 'password_screen.dart';
 import '../controller/theme_controller.dart';
+import '../controller/pass_controller.dart';
+import '../controller/auth_controller.dart';
 
 class Splashscreen extends StatefulWidget {
   const Splashscreen({super.key});
@@ -17,15 +20,44 @@ class _SplashscreenState extends State<Splashscreen> {
   @override
   void initState() {
     super.initState();
-    // Navigate to Login Screen after 3 seconds
-    Timer(const Duration(seconds: 3), () {
+    Timer(const Duration(seconds: 3), () async {
       if (mounted) {
+        await _checkPinAndNavigate();
+      }
+    });
+  }
+
+  Future<void> _checkPinAndNavigate() async {
+    try {
+      final authC = Get.find<AuthController>();
+      
+      if (authC.isLoggedIn) {
+        final passC = Get.put(PassController());
+        final hasPinSet = await passC.hasPinSet();
+        
+        if (hasPinSet) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const LockScreen()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const SimpleLoginScreen()),
+          );
+        }
+      } else {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const SimpleLoginScreen()),
         );
       }
-    });
+    } catch (e) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const SimpleLoginScreen()),
+      );
+    }
   }
 
   @override

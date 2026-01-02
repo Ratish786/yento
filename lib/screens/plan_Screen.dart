@@ -197,13 +197,54 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   Future<void> _deletePlan() async {
     if (plan == null) return;
 
-    final success = await planController.deletePlan(
-      ownerId: widget.ownerId,
-      planId: widget.planId,
-    );
-
-    if (success) {
-      Navigator.of(context).popUntil((route) => route.isFirst);
+    try {
+      print('Attempting to delete plan: ${widget.planId} for owner: ${widget.ownerId}');
+      
+      // Delete the plan document
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.ownerId)
+          .collection('plans')
+          .doc(widget.planId)
+          .delete();
+      
+      print('Plan deleted successfully');
+      
+      // Delete invitations for all invited users
+      if (plan!.invitedUsers.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (final user in plan!.invitedUsers) {
+          if (user.userId != widget.ownerId) {
+            final inviteRef = FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.userId)
+                .collection('invitations')
+                .doc(widget.planId);
+            batch.delete(inviteRef);
+          }
+        }
+        await batch.commit();
+        print('Invitations deleted successfully');
+      }
+      
+      Get.snackbar(
+        'Success',
+        'Plan deleted successfully!',
+        snackPosition: SnackPosition.TOP,
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+      
+      Navigator.of(context).pop();
+    } catch (e) {
+      print('Error deleting plan: $e');
+      Get.snackbar(
+        'Error',
+        'Failed to delete plan: $e',
+        snackPosition: SnackPosition.TOP,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
     }
   }
 

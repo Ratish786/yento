@@ -66,28 +66,35 @@ class PlanModel {
   }
 
   factory PlanModel.fromDoc(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    try {
+      final data = doc.data() as Map<String, dynamic>;
+      print('Parsing plan document: ${doc.id}');
+      print('Document data: $data');
 
-    return PlanModel(
-      id: data["id"],
-      ownerId: data["ownerId"],
-      title: data["title"],
-      startDateTime: (data["startDateTime"] as Timestamp).toDate(),
-      isRecurring: data["isRecurring"],
-      repeatType: data["repeatType"],
-      repeatInterval: data["repeatInterval"],
-      repeatDays: List<int>.from(data["repeatDays"]),
-      location: data["location"],
-      notes: data["notes"],
-      circles: (data["circles"] as List? ?? [])
-          .map((e) => PlanCircle.fromMap(e))
-          .toList(),
-      invitedUsers: (data["invitedUsers"] as List)
-          .map((e) => InvitedUser.fromMap(e))
-          .toList(),
-      createdAt: (data["createdAt"] as Timestamp).toDate(),
-      updatedAt: (data["updatedAt"] as Timestamp).toDate(),
-    );
+      return PlanModel(
+        id: data["id"] ?? doc.id,
+        ownerId: data["ownerId"] ?? '',
+        title: data["title"] ?? 'Untitled Plan',
+        startDateTime: (data["startDateTime"] as Timestamp).toDate(),
+        isRecurring: data["isRecurring"] ?? false,
+        repeatType: data["repeatType"] ?? 'none',
+        repeatInterval: data["repeatInterval"] ?? 0,
+        repeatDays: List<int>.from(data["repeatDays"] ?? []),
+        location: data["location"],
+        notes: data["notes"],
+        circles: (data["circles"] as List? ?? [])
+            .map((e) => PlanCircle.fromMap(e))
+            .toList(),
+        invitedUsers: (data["invitedUsers"] as List? ?? [])
+            .map((e) => InvitedUser.fromMap(e))
+            .toList(),
+        createdAt: (data["createdAt"] as Timestamp).toDate(),
+        updatedAt: (data["updatedAt"] as Timestamp).toDate(),
+      );
+    } catch (e) {
+      print('Error parsing plan document ${doc.id}: $e');
+      rethrow;
+    }
   }
 }
 
@@ -287,22 +294,22 @@ class CreatePlanController extends GetxController {
       return false;
     }
 
-    if (locationController.text.trim().isEmpty) {
-      Get.snackbar(
-        'Missing Required Fields',
-        'Please enter a location.',
-        snackPosition: SnackPosition.TOP,
-      );
-      return false;
-    }
-
-    if (selectedUserIds.isEmpty) {
-      Get.snackbar(
-        'Missing Required Fields',
-        'Please select at least one user.',
-        snackPosition: SnackPosition.TOP,
-      );
-      return false;
+    // Check if at least one circle is selected or users are selected
+    final circleC = Get.find<CircleController>();
+    if (circleC.selectedCircleIds.isEmpty && selectedUserIds.isEmpty) {
+      // If no circles or users selected, create a personal plan for the current user
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        selectedUserIds.add(currentUser.uid);
+        print('Creating personal plan for current user: ${currentUser.uid}');
+      } else {
+        Get.snackbar(
+          'Error',
+          'Please log in to create a plan.',
+          snackPosition: SnackPosition.TOP,
+        );
+        return false;
+      }
     }
 
     return true;
@@ -311,156 +318,202 @@ class CreatePlanController extends GetxController {
   // ---------------- CREATE PLAN ----------------
   Future<void> createPlan() async {
     final owner = FirebaseAuth.instance.currentUser;
-    if (owner == null) return;
+    if (owner == null) {
+      Get.snackbar(
+        'Error',
+        'Please log in to create a plan.',
+        snackPosition: SnackPosition.TOP,
+      );
+      return;
+    }
 
     // Validate before creating
     if (!validatePlan()) return;
 
-    final start = DateTime(
-      selectedDate.value.year,
-      selectedDate.value.month,
-      selectedDate.value.day,
-      selectedTime.value.hour,
-      selectedTime.value.minute,
-    );
-
-    final planRef = FirebaseFirestore.instance
-        .collection("users")
-        .doc(owner.uid)
-        .collection("plans")
-        .doc();
-
-    final now = DateTime.now();
-
-    // 🔹 Build invitedUsers list for OWNER view with names and images
-    final circleC = Get.find<CircleController>();
-    final List<Map<String, dynamic>> invitedUsers = [];
-
-    for (final uid in selectedUserIds) {
-      // Skip the owner - they don't need an invitation
-      if (uid == owner.uid) {
-        invitedUsers.add({
-          "userId": uid,
-          "name": "You", // Or get owner's actual name
-          "image": null,
-          "status": "accepted", // Owner is automatically accepted
-          "respondedAt": Timestamp.fromDate(now),
-        });
-        continue;
-      }
-
-      // First try to get data from selected circle users
-      final userData = circleC.selectedCircleUsers.firstWhere(
-        (user) => user["id"] == uid,
-        orElse: () => {},
+    try {
+      final start = DateTime(
+        selectedDate.value.year,
+        selectedDate.value.month,
+        selectedDate.value.day,
+        selectedTime.value.hour,
+        selectedTime.value.minute,
       );
 
-      String userName = userData["name"] ?? "Unknown";
-      String? userImage = userData["image"];
-
-      // If we don't have complete data, try to fetch from Firestore
-      if (userName == "Unknown" || userName.isEmpty) {
-        try {
-          final userDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(uid)
-              .get();
-
-          if (userDoc.exists) {
-            final data = userDoc.data()!;
-            userName = data['name'] ?? data['displayName'] ?? "Unknown";
-            userImage =
-                userImage ??
-                data['photoURL'] ??
-                data['image'] ??
-                data['profileImage'];
-          }
-        } catch (e) {
-          print('Error fetching user data for $uid: $e');
-        }
+      // Ensure the user document exists
+      final userDocRef = FirebaseFirestore.instance.collection("users").doc(owner.uid);
+      final userDoc = await userDocRef.get();
+      if (!userDoc.exists) {
+        await userDocRef.set({
+          'uid': owner.uid,
+          'email': owner.email,
+          'createdAt': Timestamp.now(),
+        });
       }
 
-      invitedUsers.add({
-        "userId": uid,
-        "name": userName,
-        "image": userImage,
-        "status": "pending",
-        "respondedAt": null,
-      });
-    }
-
-    // ---------------- SAVE PLAN (ONCE) ----------------
-    await planRef.set({
-      "id": planRef.id,
-      "ownerId": owner.uid,
-      "title": titleController.text.trim(),
-      "startDateTime": Timestamp.fromDate(start),
-      "isRecurring": isRecurring.value,
-      "repeatType": isRecurring.value ? repeatType.value : "none",
-      "repeatInterval": isRecurring.value ? repeatInterval.value : 0,
-      "repeatDays": isRecurring.value ? repeatDays.toList() : [],
-      "location": locationController.text.trim(),
-      "notes": notesController.text.trim(),
-
-      // ✅ STORE CIRCLES
-      "circles": selectedCircles.map((c) => c.toJson()).toList(),
-
-      // existing
-      "invitedUsers": invitedUsers,
-      "createdAt": Timestamp.fromDate(now),
-      "updatedAt": Timestamp.fromDate(now),
-    });
-
-    // ---------------- CREATE INVITATIONS ----------------
-    // Get owner's details for invitations
-    String ownerName = "Unknown";
-    String? ownerImage;
-    
-    try {
-      final ownerDoc = await FirebaseFirestore.instance
-          .collection('SingupUsers')
-          .doc(owner.uid)
-          .get();
-      
-      if (ownerDoc.exists) {
-        final ownerData = ownerDoc.data() as Map<String, dynamic>;
-        ownerName = ownerData['name'] ?? "Unknown";
-        ownerImage = ownerData['ImageUrl'];
-      }
-    } catch (e) {
-      print('Error fetching owner data: $e');
-    }
-    
-    for (final invitedUser in invitedUsers) {
-      final uid = invitedUser["userId"];
-      
-      // Skip creating invitation for the owner
-      if (uid == owner.uid) continue;
-
-      await FirebaseFirestore.instance
+      final planRef = FirebaseFirestore.instance
           .collection("users")
-          .doc(uid)
-          .collection("invitations")
-          .doc(planRef.id)
-          .set({
-            "planId": planRef.id,
-            "ownerId": owner.uid,
-            "ownerName": ownerName,
-            "ownerImage": ownerImage,
-            "planTitle": titleController.text.trim(),
-            "status": "pending",
-            "createdAt": Timestamp.fromDate(now),
+          .doc(owner.uid)
+          .collection("plans")
+          .doc();
+
+      final now = DateTime.now();
+
+      // 🔹 Build invitedUsers list for OWNER view with names and images
+      final circleC = Get.find<CircleController>();
+      final List<Map<String, dynamic>> invitedUsers = [];
+
+      for (final uid in selectedUserIds) {
+        // Skip the owner - they don't need an invitation
+        if (uid == owner.uid) {
+          invitedUsers.add({
+            "userId": uid,
+            "name": "You", // Or get owner's actual name
+            "image": null,
+            "status": "accepted", // Owner is automatically accepted
+            "respondedAt": Timestamp.fromDate(now),
           });
+          continue;
+        }
+
+        // First try to get data from selected circle users
+        final userData = circleC.selectedCircleUsers.firstWhere(
+          (user) => user["id"] == uid,
+          orElse: () => {},
+        );
+
+        String userName = userData["name"] ?? "Unknown";
+        String? userImage = userData["image"];
+
+        // If we don't have complete data, try to fetch from Firestore
+        if (userName == "Unknown" || userName.isEmpty) {
+          try {
+            final userDoc = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(uid)
+                .get();
+
+            if (userDoc.exists) {
+              final data = userDoc.data()!;
+              userName = data['name'] ?? data['displayName'] ?? "Unknown";
+              userImage =
+                  userImage ??
+                  data['photoURL'] ??
+                  data['image'] ??
+                  data['profileImage'];
+            }
+          } catch (e) {
+            print('Error fetching user data for $uid: $e');
+          }
+        }
+
+        invitedUsers.add({
+          "userId": uid,
+          "name": userName,
+          "image": userImage,
+          "status": "pending",
+          "respondedAt": null,
+        });
+      }
+
+      // ---------------- SAVE PLAN (ONCE) ----------------
+      await planRef.set({
+        "id": planRef.id,
+        "ownerId": owner.uid,
+        "title": titleController.text.trim(),
+        "startDateTime": Timestamp.fromDate(start),
+        "isRecurring": isRecurring.value,
+        "repeatType": isRecurring.value ? repeatType.value : "none",
+        "repeatInterval": isRecurring.value ? repeatInterval.value : 0,
+        "repeatDays": isRecurring.value ? repeatDays.toList() : [],
+        "location": locationController.text.trim(),
+        "notes": notesController.text.trim(),
+
+        // ✅ STORE CIRCLES
+        "circles": selectedCircles.map((c) => c.toJson()).toList(),
+
+        // existing
+        "invitedUsers": invitedUsers,
+        "createdAt": Timestamp.fromDate(now),
+        "updatedAt": Timestamp.fromDate(now),
+      });
+
+      print('Plan created successfully with ID: ${planRef.id}');
+      print('Plan title: ${titleController.text.trim()}');
+      print('Plan start time: $start');
+      print('Invited users count: ${invitedUsers.length}');
+
+      // ---------------- CREATE INVITATIONS ----------------
+      // Get owner's details for invitations
+      String ownerName = "Unknown";
+      String? ownerImage;
+      
+      try {
+        final ownerDoc = await FirebaseFirestore.instance
+            .collection('SingupUsers')
+            .doc(owner.uid)
+            .get();
+        
+        if (ownerDoc.exists) {
+          final ownerData = ownerDoc.data() as Map<String, dynamic>;
+          ownerName = ownerData['name'] ?? "Unknown";
+          ownerImage = ownerData['ImageUrl'];
+        }
+      } catch (e) {
+        print('Error fetching owner data: $e');
+      }
+      
+      for (final invitedUser in invitedUsers) {
+        final uid = invitedUser["userId"];
+        
+        // Skip creating invitation for the owner
+        if (uid == owner.uid) continue;
+
+        // Ensure the invited user document exists
+        final invitedUserDocRef = FirebaseFirestore.instance.collection("users").doc(uid);
+        final invitedUserDoc = await invitedUserDocRef.get();
+        if (!invitedUserDoc.exists) {
+          await invitedUserDocRef.set({
+            'uid': uid,
+            'createdAt': Timestamp.now(),
+          });
+        }
+
+        await FirebaseFirestore.instance
+            .collection("users")
+            .doc(uid)
+            .collection("invitations")
+            .doc(planRef.id)
+            .set({
+              "planId": planRef.id,
+              "ownerId": owner.uid,
+              "ownerName": ownerName,
+              "ownerImage": ownerImage,
+              "planTitle": titleController.text.trim(),
+              "status": "pending",
+              "createdAt": Timestamp.fromDate(now),
+            });
+      }
+
+      clearForm();
+
+      // Show success message
+      Get.snackbar(
+        'Success',
+        'Plan created successfully!',
+        snackPosition: SnackPosition.TOP,
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+    } catch (e) {
+      print('Error creating plan: $e');
+      Get.snackbar(
+        'Error',
+        'Failed to create plan. Please try again.',
+        snackPosition: SnackPosition.TOP,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
     }
-
-    clearForm();
-
-    // Show success message
-    Get.snackbar(
-      'Success',
-      'Plan created successfully!',
-      snackPosition: SnackPosition.TOP,
-    );
   }
 
   // ---------------- RESPOND TO INVITE ----------------
@@ -645,6 +698,11 @@ class CreatePlanController extends GetxController {
     selectedCircles.clear(); // ✅ IMPORTANT
     repeatDays.clear();
     isRecurring.value = false;
+    
+    // Also clear circle controller selections
+    final circleC = Get.find<CircleController>();
+    circleC.selectedCircleIds.clear();
+    circleC.selectedCircleUsers.clear();
   }
 
   Stream<List<InvitationModel>> getPendingInvitations() {
@@ -666,8 +724,12 @@ class CreatePlanController extends GetxController {
 
   Stream<List<PlanModel>> getOwnerPlans() {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return const Stream.empty();
+    if (user == null) {
+      print('No authenticated user for getOwnerPlans');
+      return const Stream.empty();
+    }
 
+    print('Fetching owner plans for user: ${user.uid}');
     return FirebaseFirestore.instance
         .collection("users")
         .doc(user.uid)
@@ -675,6 +737,10 @@ class CreatePlanController extends GetxController {
         .orderBy("startDateTime")
         .snapshots()
         .map((snapshot) {
+          print('Owner plans snapshot: ${snapshot.docs.length} documents');
+          for (var doc in snapshot.docs) {
+            print('Plan doc: ${doc.id} - ${doc.data()}');
+          }
           return snapshot.docs.map((doc) => PlanModel.fromDoc(doc)).toList();
         });
   }
@@ -862,11 +928,19 @@ class CreatePlanController extends GetxController {
 
   Stream<List<PlanModel>> getCalendarPlans() {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return const Stream.empty();
+    if (user == null) {
+      print('No authenticated user for getCalendarPlans');
+      return const Stream.empty();
+    }
 
+    print('Fetching calendar plans for user: ${user.uid}');
     return getOwnerPlans().asyncMap((ownerPlans) async {
+      print('Owner plans count: ${ownerPlans.length}');
       final invitedPlans = await getInvitedPlans().first;
-      return [...ownerPlans, ...invitedPlans];
+      print('Invited plans count: ${invitedPlans.length}');
+      final allPlans = [...ownerPlans, ...invitedPlans];
+      print('Total calendar plans: ${allPlans.length}');
+      return allPlans;
     });
   }
 
@@ -968,5 +1042,46 @@ class CreatePlanController extends GetxController {
       syncCirclesFromController();
       syncUsersFromCircles(users);
     });
+
+    // Debug: Check Firebase connectivity and user
+    _debugFirebaseConnection();
+  }
+
+  void _debugFirebaseConnection() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      print('DEBUG: No authenticated user');
+      return;
+    }
+
+    print('DEBUG: Current user: ${user.uid}');
+    print('DEBUG: User email: ${user.email}');
+
+    try {
+      // Check if user document exists
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      
+      print('DEBUG: User document exists: ${userDoc.exists}');
+      if (userDoc.exists) {
+        print('DEBUG: User document data: ${userDoc.data()}');
+      }
+
+      // Check plans collection
+      final plansQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('plans')
+          .get();
+      
+      print('DEBUG: Plans collection size: ${plansQuery.docs.length}');
+      for (var doc in plansQuery.docs) {
+        print('DEBUG: Plan: ${doc.id} - ${doc.data()}');
+      }
+    } catch (e) {
+      print('DEBUG: Firebase error: $e');
+    }
   }
 }

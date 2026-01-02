@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:yento_app/components/custom/TermsOfServices.dart';
 import 'package:yento_app/components/custom/customNotificationsBox.dart';
 import 'package:yento_app/controller/sidebar_controller.dart';
 import 'package:yento_app/controller/theme_controller.dart';
+import 'package:yento_app/controller/pass_controller.dart';
 import '../components/custom/PrivacyPolicy.dart';
 import '../components/custom/app_shell.dart';
 import '../components/custom/customBottombar.dart';
@@ -32,6 +35,15 @@ class _ProfilescreenState extends State<Profilescreen> {
 
   final SidebarController sidebarC = Get.find<SidebarController>();
   final ThemeController themeC = Get.put(ThemeController());
+  final PassController passC = Get.put(PassController());
+
+  final TextEditingController pinController = TextEditingController();
+  final TextEditingController confirmPinController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +70,7 @@ class _ProfilescreenState extends State<Profilescreen> {
           leading: Builder(
             builder: (context) => IconButton(
               onPressed: () {
-                AppShell.shellScaffoldKey.currentState!.openDrawer();
+                Scaffold.of(context).openDrawer();
               },
               icon: const Icon(Icons.menu),
             ),
@@ -107,7 +119,7 @@ class _ProfilescreenState extends State<Profilescreen> {
                 ),
               ),
               const SizedBox(height: 25),
-              Center(child: privacyAndSecurity(height, width, themeC)),
+              Center(child: privacyAndSecurity(height, width, themeC, this)),
               const SizedBox(height: 25),
               supportAndLegal(context, themeC),
               const SizedBox(height: 25),
@@ -667,7 +679,12 @@ Widget displaySettings({
 }
 
 // --- PRIVACY & SECURITY (Already has theme support) ---
-Widget privacyAndSecurity(double height, double width, ThemeController themeC) {
+Widget privacyAndSecurity(
+  double height,
+  double width,
+  ThemeController themeC,
+  _ProfilescreenState state,
+) {
   return Obx(() {
     final isDark = themeC.isDarkMode.value;
     final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
@@ -819,46 +836,37 @@ Widget privacyAndSecurity(double height, double width, ThemeController themeC) {
             Divider(height: 1, color: borderColor),
             const SizedBox(height: 24),
             Text(
-              'Enable App Lock to require a PIN every time you open Venne.',
-              style: TextStyle(color: textColor, fontSize: 15, height: 1.4),
-            ),
-            const SizedBox(height: 16),
-            _buildPinInput(
-              'Set 4-digit PIN',
-              inputFillColor,
-              borderColor,
-              subTextColor,
-            ),
-            const SizedBox(height: 12),
-            _buildPinInput(
-              'Confirm PIN',
-              inputFillColor,
-              borderColor,
-              subTextColor,
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 44,
-              child: ElevatedButton(
-                onPressed: () {},
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF3B82F6),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                ),
-                child: const Text(
-                  'Enable App Lock',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
-                ),
+              'App Lock',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: textColor,
               ),
             ),
+            const SizedBox(height: 16),
+            Obx(() {
+              final hasPinSet = state.passC.hasPinSetValue.value;
+
+              if (hasPinSet) {
+                return _buildPinEnabledCard(
+                  state,
+                  isDark,
+                  textColor,
+                  subTextColor,
+                  cardColor,
+                  borderColor,
+                );
+              } else {
+                return _buildPinSetupCard(
+                  state,
+                  isDark,
+                  textColor,
+                  subTextColor,
+                  inputFillColor,
+                  borderColor,
+                );
+              }
+            }),
           ],
         ),
       ),
@@ -871,16 +879,20 @@ Widget _buildPinInput(
   Color fillColor,
   Color borderColor,
   Color hintColor,
+  TextEditingController controller,
 ) {
   return TextField(
-    obscureText: false,
+    controller: controller,
+    obscureText: true,
     keyboardType: TextInputType.number,
+    maxLength: 4,
     style: const TextStyle(fontSize: 15),
     decoration: InputDecoration(
       hintText: hint,
       hintStyle: TextStyle(color: hintColor, fontSize: 15),
       filled: true,
       fillColor: fillColor,
+      counterText: '',
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
@@ -1582,6 +1594,227 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
           ],
         ),
       ),
+    );
+  }
+}
+
+Widget _buildPinEnabledCard(
+  _ProfilescreenState state,
+  bool isDark,
+  Color textColor,
+  Color subTextColor,
+  Color cardColor,
+  Color borderColor,
+) {
+  return Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: isDark ? const Color(0xFF065F46) : const Color(0xFFD1FAE5),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: borderColor),
+    ),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            Icon(
+              Icons.check_circle,
+              color: isDark ? const Color(0xFF10B981) : const Color(0xFF059669),
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'App Lock is Enabled',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: isDark
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFF059669),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Your app is protected with a 4-digit PIN',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark
+                          ? const Color(0xFF6EE7B7)
+                          : const Color(0xFF047857),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () async {
+                  await _showDisablePinDialog(state);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Disable',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildPinSetupCard(
+  _ProfilescreenState state,
+  bool isDark,
+  Color textColor,
+  Color subTextColor,
+  Color inputFillColor,
+  Color borderColor,
+) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        'Enable App Lock to require a PIN every time you open Venne.',
+        style: TextStyle(color: textColor, fontSize: 15, height: 1.4),
+      ),
+      const SizedBox(height: 16),
+      _buildPinInput(
+        'Set 4-digit PIN',
+        inputFillColor,
+        borderColor,
+        subTextColor,
+        state.pinController,
+      ),
+      const SizedBox(height: 12),
+      _buildPinInput(
+        'Confirm PIN',
+        inputFillColor,
+        borderColor,
+        subTextColor,
+        state.confirmPinController,
+      ),
+      const SizedBox(height: 16),
+      SizedBox(
+        height: 44,
+        child: ElevatedButton(
+          onPressed: () async {
+            if (state.pinController.text.length != 4) {
+              Get.snackbar(
+                'Invalid PIN',
+                'PIN must be 4 digits',
+                snackPosition: SnackPosition.TOP,
+                backgroundColor: Colors.red,
+                colorText: Colors.white,
+              );
+              return;
+            }
+
+            if (state.pinController.text != state.confirmPinController.text) {
+              Get.snackbar(
+                'PIN Mismatch',
+                'PINs do not match',
+                snackPosition: SnackPosition.TOP,
+                backgroundColor: Colors.red,
+                colorText: Colors.white,
+              );
+              return;
+            }
+
+            final success = await state.passC.setPin(state.pinController.text);
+            if (success) {
+              state.pinController.clear();
+              state.confirmPinController.clear();
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF3B82F6),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+          ),
+          child: const Text(
+            'Enable App Lock',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
+}
+
+Future<void> _showDisablePinDialog(_ProfilescreenState state) async {
+  Get.dialog(
+    AlertDialog(
+      title: const Text('Disable App Lock'),
+      content: const Text('Are you sure you want to disable the app lock?'),
+      actions: [
+        TextButton(onPressed: () => Get.back(), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () async {
+            Get.back();
+            await _disablePin(state);
+          },
+          child: const Text('Disable', style: TextStyle(color: Colors.red)),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _disablePin(_ProfilescreenState state) async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      await FirebaseFirestore.instance
+          .collection('password')
+          .doc(user.uid)
+          .delete();
+
+      // Update the reactive variable
+      state.passC.hasPinSetValue.value = false;
+
+      Get.snackbar(
+        'Success',
+        'App Lock disabled successfully',
+        snackPosition: SnackPosition.TOP,
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
+    }
+  } catch (e) {
+    Get.snackbar(
+      'Error',
+      'Failed to disable App Lock',
+      snackPosition: SnackPosition.TOP,
+      backgroundColor: Colors.red,
+      colorText: Colors.white,
     );
   }
 }

@@ -221,12 +221,12 @@ class _HangoutscreenState extends State<Hangoutscreen> {
             boxShadow: isActive
                 ? []
                 : [
-              BoxShadow(
-                color: const Color(0xFFEF4444).withOpacity(0.3),
-                blurRadius: 10,
-                spreadRadius: 2,
-              ),
-            ],
+                    BoxShadow(
+                      color: const Color(0xFFEF4444).withOpacity(0.3),
+                      blurRadius: 10,
+                      spreadRadius: 2,
+                    ),
+                  ],
           ),
           child: IconButton(
             style: IconButton.styleFrom(
@@ -236,10 +236,7 @@ class _HangoutscreenState extends State<Hangoutscreen> {
               padding: const EdgeInsets.all(16),
             ),
             onPressed: onPressed,
-            icon: Icon(
-              icon,
-              color: const Color(0xFFFFFFFF),
-            ),
+            icon: Icon(icon, color: const Color(0xFFFFFFFF)),
             iconSize: 28,
           ),
         ),
